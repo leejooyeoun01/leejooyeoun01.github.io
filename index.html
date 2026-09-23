@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="description" content="Jooyeoun Lee — Architecture Portfolio" />
+  <title>Jooyeoun Lee — Portfolio</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #fff; }
+    body { overflow-x: hidden; }
+    #portfolio { width: 100%; margin: 0 auto; }
+    .page {
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      line-height: 0;
+      background: #fff;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      margin: 0;
+      padding: 0;
+    }
+  </style>
+</head>
+<body>
+  <main id="portfolio" aria-label="Jooyeoun Lee portfolio"></main>
+
+  <script type="module">
+    const PDF_URL = './portfolio.pdf';
+    const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs';
+    const WORKER_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
+    const portfolio = document.getElementById('portfolio');
+
+    async function start() {
+      const pdfjsLib = await import(PDFJS_URL);
+      pdfjsLib.GlobalWorkerOptions.workerSrc = WORKER_URL;
+
+      const pdf = await pdfjsLib.getDocument({
+        url: PDF_URL,
+        rangeChunkSize: 262144,
+        disableAutoFetch: false,
+        disableStream: false
+      }).promise;
+
+      const first = await pdf.getPage(1);
+      const base = first.getViewport({ scale: 1 });
+      const aspect = `${base.width} / ${base.height}`;
+
+      const slots = [];
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const wrap = document.createElement('section');
+        wrap.className = 'page';
+        wrap.style.aspectRatio = aspect;
+        wrap.dataset.page = i;
+        wrap.setAttribute('aria-label', `Portfolio page ${i}`);
+
+        const canvas = document.createElement('canvas');
+        wrap.appendChild(canvas);
+        portfolio.appendChild(wrap);
+        slots.push(wrap);
+      }
+
+      async function renderPage(wrap) {
+        if (wrap.dataset.rendered === '1' || wrap.dataset.rendering === '1') return;
+        wrap.dataset.rendering = '1';
+
+        const pageNumber = Number(wrap.dataset.page);
+        const page = await pdf.getPage(pageNumber);
+        const unit = page.getViewport({ scale: 1 });
+
+        const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+        const targetPixelWidth = Math.max(
+          1400,
+          Math.min(window.innerWidth * pixelRatio, 2550)
+        );
+        const viewport = page.getViewport({ scale: targetPixelWidth / unit.width });
+
+        const canvas = wrap.querySelector('canvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        canvas.style.width = '100%';
+        canvas.style.height = 'auto';
+
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        wrap.style.aspectRatio = 'auto';
+        wrap.dataset.rendered = '1';
+        delete wrap.dataset.rendering;
+        page.cleanup();
+      }
+
+      const observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            renderPage(entry.target).catch(() => {});
+            observer.unobserve(entry.target);
+          }
+        }
+      }, { rootMargin: '1800px 0px' });
+
+      slots.forEach((slot) => observer.observe(slot));
+      await renderPage(slots[0]);
+      if (slots[1]) renderPage(slots[1]);
+    }
+
+    start().catch(() => {
+      // If PDF.js is blocked by the browser/network, fall back to the PDF itself.
+      window.location.replace(PDF_URL);
+    });
+  </script>
+</body>
+</html>
